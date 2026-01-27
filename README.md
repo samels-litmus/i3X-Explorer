@@ -53,6 +53,9 @@ nvm use 20
 # Install dependencies
 npm install
 
+# Generate app icons (requires ImageMagick: brew install imagemagick)
+./scripts/generate-icons.sh build/icon-1024.png
+
 # Start Electron app in development mode (with hot reload)
 npm run dev
 ```

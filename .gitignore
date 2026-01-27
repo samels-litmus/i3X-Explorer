@@ -56,8 +56,8 @@ build/icon.png
 build/icon.ico
 build/icon.icns
 build/icon-*.png
+!build/icon-1024.png
 build/icon.iconset/
-build/icon-source.png
 
 # Package manager locks (optional - uncomment if you want to ignore)
 # package-lock.json
