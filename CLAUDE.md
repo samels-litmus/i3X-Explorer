@@ -62,10 +62,13 @@ npm run typecheck
 
 ```bash
 # First, switch to the correct Node version
-nvm use
+nvm use 20  # or: nvm use (if .nvmrc is configured)
 
-# Build for current platform
-npm run build
+# Generate icons (uses build/icon-1024.png by default)
+./scripts/generate-icons.sh
+
+# Build for all platforms (recommended for releases)
+npm run build:all
 
 # Platform-specific builds
 npm run build:mac          # macOS (Intel + Apple Silicon)
@@ -73,7 +76,6 @@ npm run build:mac:x64      # macOS Intel only
 npm run build:mac:arm64    # macOS Apple Silicon only
 npm run build:win          # Windows (x64 + x86 + portable)
 npm run build:linux        # Linux (AppImage + tar.gz)
-npm run build:all          # All platforms
 ```
 
 **Output:** `release/{version}/`
@@ -84,9 +86,17 @@ npm run build:all          # All platforms
 | Windows | `.exe` installer, portable `.exe` |
 | Linux | `.AppImage`, `.tar.gz` (x64 & arm64) |
 
+### Icon Generation
+
+The `scripts/generate-icons.sh` script generates platform-specific icons:
+- Uses `build/icon-1024.png` as the source by default
+- Generates `.ico` (Windows), `.icns` (macOS), and various `.png` sizes (Linux)
+- Requires ImageMagick (`brew install imagemagick`)
+- Run before building to ensure icons are up to date
+
 ## Features
 
-- Connect to I3X servers (default: https://i3x.cesmii.net)
+- Connect to I3X servers (default: https://proveit-i3x.cesmii.net)
 - Browse hierarchical tree: Namespaces → ObjectTypes → Objects
 - Browse flat Objects list (lazy-loaded)
 - Expand compositional objects to see children
@@ -171,15 +181,11 @@ Most endpoints accept either single `elementId` or array `elementIds`:
 ```
 
 ### Batch Response Format
+Value endpoints return keyed responses for batch requests:
 ```json
 {
-  "results": [
-    {"elementId": "id1", "success": true, "data": {...}},
-    {"elementId": "id2", "success": false, "error": "Not found"}
-  ],
-  "totalRequested": 2,
-  "totalSuccess": 1,
-  "totalFailed": 1
+  "elementId1": {"data": [{"value": 123, "quality": "GOOD", "timestamp": "..."}]},
+  "elementId2": {"data": [{"value": 456, "quality": "GOOD", "timestamp": "..."}]}
 }
 ```
 
@@ -258,18 +264,14 @@ open http://localhost:8080/docs
 ## Implementation Notes
 
 ### API Response Format
-**All POST endpoints return wrapped responses**, even for single elementId queries:
+POST endpoints for values return **keyed responses** where each elementId maps to its data:
 ```json
 {
-  "results": [
-    {"elementId": "id1", "success": true, "data": {...}}
-  ],
-  "totalRequested": 1,
-  "totalSuccess": 1,
-  "totalFailed": 0
+  "elementId1": {"data": [{"value": 123, "quality": "GOOD", "timestamp": "2024-01-01T00:00:00Z"}]},
+  "elementId2": {"data": [{"value": 456, "quality": "GOOD", "timestamp": "2024-01-01T00:00:00Z"}]}
 }
 ```
-The client must unwrap by extracting `results[0].data`.
+The client extracts values by looking up `response[elementId].data[0]`.
 
 ### Tree Navigation Structure
 The explorer uses two top-level folders:
@@ -282,18 +284,19 @@ The explorer uses two top-level folders:
 - Without these filters, cycles cause infinite loops/hangs
 
 ### SSE vs Polling
-- **Polling (QoS2)** is the default — uses `POST /subscriptions/{id}/sync`, more reliable with CORS
-- **SSE (QoS0)** requires proper server format and CORS configuration
+- **SSE (QoS0)** is the default — real-time streaming via `GET /subscriptions/{id}/stream`
+- **Polling (QoS2)** available as fallback — uses `POST /subscriptions/{id}/sync`
+- Both use the same keyed response format
 
-### SSE Format Requirements
-Server must send proper SSE format:
+### SSE/Sync Response Format
+Both SSE and sync endpoints return arrays of keyed objects:
 ```
-data: [{"elementId": "...", "value": ...}]
+data: [{"elementId": {"data": [{"value": 123, "quality": "GOOD", "timestamp": "..."}]}}]
 
-data: [{"elementId": "...", "value": ...}]
+data: [{"elementId": {"data": [{"value": 456, "quality": "GOOD", "timestamp": "..."}]}}]
 
 ```
-Each message needs:
+SSE format requirements:
 1. `data: ` prefix
 2. Two newlines (`\n\n`) after each message
 3. `Content-Type: text/event-stream` header
