@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>i3X Explorer</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    font-family: -apple-system, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+    background: #0d0f14;
+    color: #dfe2ec;
+    height: 100vh;
+    overflow: hidden;
+    cursor: default;
+  }
+
+  #tableCanvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+  }
+
+  /* UI Layer */
+  .hud {
+    position: fixed;
+    z-index: 100;
+    pointer-events: none;
+  }
+  .hud > * { pointer-events: auto; }
+
+  .hud-top {
+    top: 0; left: 0; right: 0;
+    display: flex;
+    align-items: center;
+    padding: 12px 20px;
+    gap: 12px;
+    background: linear-gradient(to bottom, rgba(13,15,20,.95) 0%, rgba(13,15,20,.6) 80%, transparent 100%);
+  }
+
+  .logo {
+    font-size: 15px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #5b7fff, #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    white-space: nowrap;
+  }
+
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #34d399;
+    box-shadow: 0 0 8px #34d399;
+    animation: blink 2.5s ease-in-out infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1}50%{opacity:.3} }
+
+  .slab { font-size: 11px; color: #6b7194; }
+  .slab b { color: #dfe2ec; font-weight: 600; }
+
+  .search-wrap {
+    margin-left: auto;
+  }
+  .search {
+    background: rgba(26,30,40,.9);
+    border: 1px solid #252a3a;
+    border-radius: 8px;
+    padding: 7px 14px;
+    color: #dfe2ec;
+    font-size: 13px;
+    width: 240px;
+    outline: none;
+    transition: border-color .15s;
+    backdrop-filter: blur(8px);
+  }
+  .search:focus { border-color: #5b7fff; }
+  .search::placeholder { color: #6b7194; }
+
+  /* Breadcrumb */
+  .hud-crumbs {
+    top: 50px; left: 0; right: 0;
+    padding: 0 20px;
+    display: flex;
+    gap: 4px;
+    font-size: 12px;
+    align-items: center;
+  }
+  .crumb {
+    color: #6b7194;
+    cursor: pointer;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: rgba(26,30,40,.7);
+    backdrop-filter: blur(4px);
+  }
+  .crumb:hover { background: rgba(37,42,58,.9); color: #dfe2ec; }
+  .crumb.here { color: #5b7fff; font-weight: 600; }
+  .crumb-sep { color: #252a3a; font-size: 10px; }
+
+  /* Detail overlay */
+  .overlay {
+    position: fixed;
+    top: 0; right: 0;
+    width: 380px;
+    max-width: 90vw;
+    height: 100vh;
+    background: rgba(21,24,32,.97);
+    backdrop-filter: blur(20px);
+    border-left: 1px solid #252a3a;
+    z-index: 200;
+    transform: translateX(100%);
+    transition: transform .25s cubic-bezier(.4,0,.2,1);
+    display: flex;
+    flex-direction: column;
+    box-shadow: -8px 0 40px rgba(0,0,0,.5);
+  }
+  .overlay.open { transform: translateX(0); }
+
+  .ov-head {
+    padding: 16px 20px;
+    border-bottom: 1px solid #252a3a;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .ov-title { font-size: 16px; font-weight: 700; }
+  .ov-sub { font-size: 11px; color: #6b7194; word-break: break-all; margin-top: 2px; }
+  .ov-close {
+    margin-left: auto;
+    background: none; border: none;
+    color: #6b7194; font-size: 18px;
+    cursor: pointer; padding: 4px;
+  }
+  .ov-close:hover { color: #dfe2ec; }
+
+  .ov-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+  }
+  .ov-body::-webkit-scrollbar { width: 5px; }
+  .ov-body::-webkit-scrollbar-thumb { background: #252a3a; border-radius: 3px; }
+
+  .sec { margin-bottom: 16px; }
+  .sec-title {
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .6px;
+    color: #6b7194; margin-bottom: 8px;
+  }
+
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:3px 12px; font-size:12px; }
+  .kv-l { color:#6b7194; }
+  .kv-v { color:#dfe2ec; word-break:break-all; font-family:'SF Mono',monospace; font-size:11px; }
+
+  .big-val {
+    background: #0d0f14;
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .big-val .n {
+    font-family: 'SF Mono', monospace;
+    font-size: 32px; font-weight: 800;
+    background: linear-gradient(135deg, #22d3ee, #5b7fff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .big-val .t { font-size: 10px; color: #6b7194; margin-top: 4px; }
+
+  .json-blk {
+    background: #0d0f14;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-family: 'SF Mono', monospace;
+    font-size: 11px; line-height: 1.5;
+    max-height: 240px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all;
+    color: #22d3ee;
+  }
+
+  .rel-chain { display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .rel-pill {
+    padding:5px 12px; border-radius:6px;
+    font-size:12px; cursor:pointer; transition:all .1s;
+    max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .rel-pill:hover { transform:scale(1.03); }
+  .rel-pill.par { background:rgba(245,158,11,.08); border:1px solid rgba(245,158,11,.25); color:#f59e0b; }
+  .rel-pill.me { background:rgba(91,127,255,.08); border:2px solid #5b7fff; color:#5b7fff; font-weight:700; }
+  .rel-pill.ch { background:rgba(52,211,153,.08); border:1px solid rgba(52,211,153,.25); color:#34d399; }
+  .rel-arr { color:#252a3a; font-size:10px; }
+  .rel-wrap { display:flex; flex-wrap:wrap; gap:5px; justify-content:center; }
+
+  /* Hint */
+  .hint {
+    position: fixed;
+    bottom: 16px; left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: #6b7194;
+    padding: 6px 16px;
+    background: rgba(21,24,32,.8);
+    backdrop-filter: blur(8px);
+    border-radius: 20px;
+    border: 1px solid #252a3a;
+    z-index: 100;
+    transition: opacity .3s;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="tableCanvas"></canvas>
+
+<div class="hud hud-top">
+  <span class="logo">i3X Explorer</span>
+  <span class="dot"></span>
+  <span class="slab">localhost:3000</span>
+  <span class="slab">Objects <b id="sObj">-</b></span>
+  <span class="slab">Types <b id="sTyp">-</b></span>
+  <div class="search-wrap">
+    <input class="search" id="search" placeholder="Filter..." />
+  </div>
+</div>
+
+<div class="hud hud-crumbs" id="crumbs"></div>
+
+<div class="overlay" id="overlay">
+  <div class="ov-head">
+    <div><div class="ov-title" id="oT"></div><div class="ov-sub" id="oS"></div></div>
+    <button class="ov-close" id="oX">&times;</button>
+  </div>
+  <div class="ov-body" id="oB"></div>
+</div>
+
+<div class="hint" id="hint">Drag to move objects &middot; Double-click to open &middot; Scroll to zoom</div>
+
+<script>
+// ===== CONFIG =====
+const BASE = 'http://localhost:3000';
+const CARD_W = 160, CARD_H = 72;
+const FRICTION = 0.92;        // inertia friction per frame
+const SAND_FRICTION = 0.85;   // extra when not dragging (sand drag)
+const THROW_MULT = 0.6;       // velocity multiplier on release
+const SAND_GRAIN_COUNT = 4000;
+const COLS_PER_ROW = 7;
+
+// ===== STATE =====
+const canvas = document.getElementById('tableCanvas');
+const ctx = canvas.getContext('2d');
+
+let W, H, dpr;
+let camX = 0, camY = 0, zoom = 1;
+
+let namespaces = [], allObjects = [], types = [];
+let byId = {}, byParent = {}, typesByNs = {};
+let nav = []; // navigation stack
+let filter = '';
+let cards = []; // current rendered card objects
+let valCache = {};
+let sandGrains = [];
+
+// Drag state
+let dragCard = null, dragOffX = 0, dragOffY = 0;
+let lastMX = 0, lastMY = 0, velX = 0, velY = 0;
+let panDrag = false, panStartX = 0, panStartY = 0, panCamX = 0, panCamY = 0;
+let hoverCard = null;
+
+// Namespace theme
+const nsTheme = {
+  'urn:proveit:enterprise-a': { icon: '\u{1F3ED}', c: '#f472b6', l: 'Glass' },
+  'urn:proveit:enterprise-b': { icon: '\u{1F37A}', c: '#f59e0b', l: 'Beverage' },
+  'urn:proveit:enterprise-c': { icon: '\u{1F9EA}', c: '#a78bfa', l: 'Biopharma' },
+  'urn:proveit:abelara':      { icon: '\u{1F3EA}', c: '#22d3ee', l: 'UNS' },
+  'urn:proveit:fuuz':         { icon: '\u{1F4E1}', c: '#34d399', l: 'Telemetry' },
+  'urn:proveit:types':        { icon: '\u{1F4D0}', c: '#6b7194', l: 'Types' },
+  'urn:vdma.org:OpcUaMachinery': { icon: '\u2699\uFE0F', c: '#5b7fff', l: 'OPC UA' },
+};
+function th(uri) { return nsTheme[uri] || { icon: '\u{1F4C1}', c: '#6b7194', l: '' }; }
+
+// ===== RESIZE =====
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ===== SAND =====
+function initSand() {
+  sandGrains = [];
+  // spread across a large area
+  for (let i = 0; i < SAND_GRAIN_COUNT; i++) {
+    sandGrains.push({
+      x: (Math.random() - 0.5) * 6000,
+      y: (Math.random() - 0.5) * 4000,
+      r: Math.random() * 1.2 + 0.3,
+      a: Math.random() * 0.06 + 0.02,
+    });
+  }
+}
+initSand();
+
+function drawSand() {
+  for (const g of sandGrains) {
+    const sx = (g.x - camX) * zoom + W / 2;
+    const sy = (g.y - camY) * zoom + H / 2;
+    if (sx < -10 || sx > W + 10 || sy < -10 || sy > H + 10) continue;
+    ctx.beginPath();
+    ctx.arc(sx, sy, g.r * zoom, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(194,178,148,${g.a})`;
+    ctx.fill();
+  }
+}
+
+// ===== CARD CLASS =====
+function makeCard(obj, x, y, kind) {
+  return {
+    obj,
+    kind, // 'ns', 'folder', 'leaf', 'type', 'back'
+    x, y,
+    w: CARD_W, h: CARD_H,
+    vx: 0, vy: 0,
+    targetX: x, targetY: y,
+  };
+}
+
+// ===== LAYOUT =====
+function layoutCards(items) {
+  cards = [];
+  const cols = Math.min(COLS_PER_ROW, Math.max(3, Math.floor(W / (CARD_W + 20))));
+  const gapX = 18, gapY = 16;
+  const totalW = cols * CARD_W + (cols - 1) * gapX;
+  const startX = -totalW / 2;
+  const startY = -120;
+
+  // "Back" card
+  if (nav.length > 0) {
+    const bx = startX;
+    const by = startY - CARD_H - gapY;
+    cards.push(makeCard(null, bx, by, 'back'));
+  }
+
+  let idx = 0;
+  for (const item of items) {
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    const x = startX + col * (CARD_W + gapX);
+    const y = startY + row * (CARD_H + gapY);
+    cards.push(makeCard(item.obj, x, y, item.kind));
+    idx++;
+  }
+
+  // Center camera on cards
+  camX = 0;
+  camY = cards.length > 6 ? (cards.length / cols) * (CARD_H + gapY) / 3 : 0;
+}
+
+// ===== DATA LOADING =====
+async function load() {
+  const [ns, obj] = await Promise.all([
+    fetch(BASE + '/namespaces').then(r => r.json()),
+    fetch(BASE + '/objects').then(r => r.json()),
+  ]);
+  namespaces = ns;
+  allObjects = obj;
+  byId = {}; byParent = {};
+  for (const o of allObjects) {
+    byId[o.elementId] = o;
+    const p = o.parentId || '__root__';
+    (byParent[p] || (byParent[p] = [])).push(o);
+  }
+  const tp = await Promise.all(namespaces.map(n =>
+    fetch(BASE + '/objecttypes?namespaceUri=' + encodeURIComponent(n.uri)).then(r => r.json())
+  ));
+  namespaces.forEach((n, i) => { typesByNs[n.uri] = tp[i]; });
+  types = tp.flat();
+
+  document.getElementById('sObj').textContent = allObjects.length.toLocaleString();
+  document.getElementById('sTyp').textContent = types.length;
+
+  nav = [];
+  buildView();
+  prefetchValues();
+}
+
+async function prefetchValues() {
+  const leafIds = allObjects.filter(o => !o.hasChildren).map(o => o.elementId);
+  for (let i = 0; i < leafIds.length; i += 100) {
+    const batch = leafIds.slice(i, i + 100);
+    try {
+      const data = await fetch(BASE + '/objects/value', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ elementIds: batch }),
+      }).then(r => r.json());
+      for (const [eid, val] of Object.entries(data)) {
+        if (val?.data?.[0]) valCache[eid] = val.data[0];
+      }
+    } catch (e) {}
+  }
+}
+
+async function getValue(eid) {
+  if (valCache[eid]) return valCache[eid];
+  try {
+    const data = await fetch(BASE + '/objects/value', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ elementIds: [eid] }),
+    }).then(r => r.json());
+    if (data[eid]?.data?.[0]) { valCache[eid] = data[eid].data[0]; return valCache[eid]; }
+  } catch (e) {}
+  return null;
+}
+
+// ===== VIEW BUILDING =====
+function buildView() {
+  const view = nav.length === 0 ? { kind: 'home' } : nav[nav.length - 1];
+  let items = [];
+
+  if (view.kind === 'home') {
+    items = namespaces.map(ns => ({ obj: ns, kind: 'ns' }));
+  } else if (view.kind === 'namespace') {
+    const ns = view.data;
+    const nsTypes = typesByNs[ns.uri] || [];
+    for (const t of nsTypes) items.push({ obj: t, kind: 'type' });
+    const nsObjs = allObjects.filter(o => o.namespaceUri === ns.uri);
+    const roots = nsObjs.filter(o => !o.parentId || !byId[o.parentId]);
+    items.push(...objectItems(roots));
+  } else if (view.kind === 'folder') {
+    const children = byParent[view.data.elementId] || [];
+    items.push(...objectItems(children));
+  } else if (view.kind === 'type') {
+    const instances = allObjects.filter(o => o.typeId === view.data.elementId);
+    items.push(...objectItems(instances));
+  }
+
+  if (filter) {
+    const f = filter.toLowerCase();
+    items = items.filter(it => {
+      const name = it.obj.displayName || it.obj.uri || '';
+      const eid = it.obj.elementId || '';
+      return name.toLowerCase().includes(f) || eid.toLowerCase().includes(f);
+    });
+  }
+
+  layoutCards(items);
+  renderCrumbs();
+}
+
+function objectItems(objs) {
+  const sorted = [...objs].sort((a, b) => {
+    if (a.hasChildren !== b.hasChildren) return a.hasChildren ? -1 : 1;
+    return a.displayName.localeCompare(b.displayName);
+  });
+  return sorted.map(o => ({ obj: o, kind: o.hasChildren ? 'folder' : 'leaf' }));
+}
+
+function navTo(kind, data) {
+  nav.push({ kind, data });
+  filter = '';
+  document.getElementById('search').value = '';
+  buildView();
+}
+function navBack() { nav.pop(); filter = ''; document.getElementById('search').value = ''; buildView(); }
+function navToIdx(i) { nav = nav.slice(0, i + 1); buildView(); }
+
+function renderCrumbs() {
+  const el = document.getElementById('crumbs');
+  let parts = [{ label: 'Home', idx: -1 }];
+  nav.forEach((n, i) => parts.push({ label: n.data.displayName || n.data.uri, idx: i }));
+  el.innerHTML = parts.map((p, i) => {
+    const last = i === parts.length - 1;
+    const sep = !last ? '<span class="crumb-sep">\u203A</span>' : '';
+    return `<span class="crumb ${last ? 'here' : ''}" data-ci="${p.idx}">${esc(p.label)}</span>${sep}`;
+  }).join('');
+  el.querySelectorAll('.crumb').forEach(c => {
+    c.onclick = () => {
+      const ci = parseInt(c.dataset.ci);
+      if (ci < 0) { nav = []; buildView(); } else navToIdx(ci);
+    };
+  });
+}
+
+// ===== DRAWING =====
+function worldToScreen(wx, wy) {
+  return [(wx - camX) * zoom + W / 2, (wy - camY) * zoom + H / 2];
+}
+function screenToWorld(sx, sy) {
+  return [(sx - W / 2) / zoom + camX, (sy - H / 2) / zoom + camY];
+}
+
+function drawCard(c) {
+  const [sx, sy] = worldToScreen(c.x, c.y);
+  const sw = c.w * zoom, sh = c.h * zoom;
+
+  // Culling
+  if (sx + sw < 0 || sx > W || sy + sh < 0 || sy > H) return;
+
+  const isHover = c === hoverCard;
+  const isDrag = c === dragCard;
+  const r = 8 * zoom;
+
+  // Shadow
+  if (isDrag) {
+    ctx.shadowColor = 'rgba(0,0,0,.4)';
+    ctx.shadowBlur = 20 * zoom;
+    ctx.shadowOffsetY = 6 * zoom;
+  } else if (isHover) {
+    ctx.shadowColor = 'rgba(0,0,0,.25)';
+    ctx.shadowBlur = 12 * zoom;
+    ctx.shadowOffsetY = 3 * zoom;
+  }
+
+  // Background
+  ctx.beginPath();
+  roundRect(ctx, sx, sy, sw, sh, r);
+  ctx.fillStyle = isDrag ? '#232838' : isHover ? '#1f2433' : '#1a1e28';
+  ctx.fill();
+
+  // Border
+  ctx.strokeStyle = isHover || isDrag ? getBorderColor(c) : '#252a3a';
+  ctx.lineWidth = (isDrag ? 2 : 1) * zoom;
+  ctx.stroke();
+
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+
+  // Top accent bar
+  const barColor = getAccentColor(c);
+  ctx.beginPath();
+  ctx.moveTo(sx + r, sy);
+  ctx.lineTo(sx + sw - r, sy);
+  ctx.strokeStyle = barColor;
+  ctx.lineWidth = 2.5 * zoom;
+  ctx.stroke();
+
+  // Content
+  const pad = 12 * zoom;
+  const fs = zoom;
+
+  if (c.kind === 'back') {
+    ctx.font = `${14 * fs}px -apple-system, system-ui`;
+    ctx.fillStyle = '#6b7194';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('\u2190 Back', sx + pad, sy + sh / 2);
+    return;
+  }
+
+  const obj = c.obj;
+  if (!obj) return;
+
+  // Icon
+  ctx.font = `${18 * fs}px -apple-system, system-ui`;
+  ctx.textBaseline = 'top';
+  ctx.fillText(getIcon(c), sx + pad, sy + pad * 0.7);
+
+  // Name
+  ctx.font = `600 ${12 * fs}px -apple-system, system-ui`;
+  ctx.fillStyle = c.kind === 'ns' ? getAccentColor(c) : '#dfe2ec';
+  const maxW = sw - pad * 2 - 28 * fs;
+  const name = obj.displayName || obj.uri || '';
+  ctx.fillText(truncate(name, ctx, maxW), sx + pad + 26 * fs, sy + pad * 0.8);
+
+  // Meta line
+  ctx.font = `${10 * fs}px -apple-system, system-ui`;
+  ctx.fillStyle = '#6b7194';
+
+  if (c.kind === 'ns') {
+    const count = allObjects.filter(o => o.namespaceUri === obj.uri).length;
+    ctx.fillText(count.toLocaleString() + ' objects', sx + pad, sy + sh - pad - 2 * fs);
+  } else if (c.kind === 'folder') {
+    const cc = (byParent[obj.elementId] || []).length;
+    let txt = cc + ' items';
+    if (obj.typeId && obj.typeId !== 'Placeholder') txt = obj.typeId + ' \u00B7 ' + txt;
+    ctx.fillText(truncate(txt, ctx, maxW + 20 * fs), sx + pad, sy + sh - pad - 2 * fs);
+  } else if (c.kind === 'leaf') {
+    const cached = valCache[obj.elementId];
+    if (cached) {
+      const v = cached.value;
+      if (typeof v === 'number') {
+        ctx.font = `700 ${16 * fs}px 'SF Mono', monospace`;
+        ctx.fillStyle = '#34d399';
+        ctx.fillText(formatNum(v), sx + pad, sy + pad * 0.8 + 18 * fs);
+      } else if (typeof v === 'string' && v.length < 20) {
+        ctx.font = `${11 * fs}px 'SF Mono', monospace`;
+        ctx.fillStyle = '#22d3ee';
+        ctx.fillText(truncate(v, ctx, maxW + 20 * fs), sx + pad, sy + pad * 0.8 + 18 * fs);
+      } else if (typeof v === 'object') {
+        ctx.font = `${10 * fs}px 'SF Mono', monospace`;
+        ctx.fillStyle = '#a78bfa';
+        ctx.fillText('{...}', sx + pad, sy + pad * 0.8 + 18 * fs);
+      }
+      ctx.font = `${9 * fs}px -apple-system, system-ui`;
+      ctx.fillStyle = '#4a4f6a';
+      ctx.fillText(timeAgo(cached.timestamp), sx + pad, sy + sh - pad - 1 * fs);
+    } else {
+      ctx.fillText(obj.typeId || '', sx + pad, sy + sh - pad - 2 * fs);
+    }
+  } else if (c.kind === 'type') {
+    const instCount = allObjects.filter(o => o.typeId === obj.elementId).length;
+    ctx.fillText(instCount + ' instances', sx + pad, sy + sh - pad - 2 * fs);
+  }
+}
+
+function getAccentColor(c) {
+  if (c.kind === 'ns') return th(c.obj.uri).c;
+  if (c.kind === 'folder') return '#f59e0b';
+  if (c.kind === 'leaf') return '#34d399';
+  if (c.kind === 'type') return '#a78bfa';
+  if (c.kind === 'back') return '#6b7194';
+  return '#5b7fff';
+}
+
+function getBorderColor(c) {
+  const col = getAccentColor(c);
+  return col + '55';
+}
+
+function getIcon(c) {
+  if (c.kind === 'ns') return th(c.obj.uri).icon;
+  if (c.kind === 'type') return '\u{1F4D0}';
+  if (c.kind === 'folder') return '\u{1F4C2}';
+  if (c.kind === 'leaf') return '\u{1F4CB}';
+  return '\u2190';
+}
+
+// ===== RELATIONSHIP LINES =====
+function drawRelationships() {
+  // Draw lines from parent cards to child cards currently on screen
+  for (const c of cards) {
+    if (!c.obj || !c.obj.parentId) continue;
+    const parentCard = cards.find(pc => pc.obj && pc.obj.elementId === c.obj.parentId);
+    if (!parentCard) continue;
+
+    const [px, py] = worldToScreen(parentCard.x + parentCard.w / 2, parentCard.y + parentCard.h);
+    const [cx, cy] = worldToScreen(c.x + c.w / 2, c.y);
+
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    // Curved line
+    const midY = (py + cy) / 2;
+    ctx.bezierCurveTo(px, midY, cx, midY, cx, cy);
+    ctx.strokeStyle = 'rgba(91,127,255,0.12)';
+    ctx.lineWidth = 1.5 * zoom;
+    ctx.stroke();
+  }
+}
+
+// ===== PHYSICS =====
+function physics() {
+  for (const c of cards) {
+    if (c === dragCard) continue;
+
+    c.vx *= FRICTION * SAND_FRICTION;
+    c.vy *= FRICTION * SAND_FRICTION;
+
+    c.x += c.vx;
+    c.y += c.vy;
+
+    // Clamp tiny velocities
+    if (Math.abs(c.vx) < 0.01) c.vx = 0;
+    if (Math.abs(c.vy) < 0.01) c.vy = 0;
+  }
+}
+
+// ===== RENDER LOOP =====
+function frame() {
+  physics();
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Table background
+  ctx.fillStyle = '#0d0f14';
+  ctx.fillRect(0, 0, W, H);
+
+  // Table surface (subtle warm)
+  const grad = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
+  grad.addColorStop(0, 'rgba(40,35,28,0.12)');
+  grad.addColorStop(1, 'rgba(13,15,20,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  drawSand();
+  drawRelationships();
+
+  // Sort: drag card on top
+  const sorted = [...cards].sort((a, b) => (a === dragCard ? 1 : 0) - (b === dragCard ? 1 : 0));
+  for (const c of sorted) drawCard(c);
+
+  requestAnimationFrame(frame);
+}
+
+// ===== INPUT =====
+function hitTest(mx, my) {
+  const [wx, wy] = screenToWorld(mx, my);
+  // Reverse order for top-most
+  for (let i = cards.length - 1; i >= 0; i--) {
+    const c = cards[i];
+    if (wx >= c.x && wx <= c.x + c.w && wy >= c.y && wy <= c.y + c.h) return c;
+  }
+  return null;
+}
+
+canvas.addEventListener('mousedown', e => {
+  const c = hitTest(e.clientX, e.clientY);
+  if (c) {
+    dragCard = c;
+    const [wx, wy] = screenToWorld(e.clientX, e.clientY);
+    dragOffX = wx - c.x;
+    dragOffY = wy - c.y;
+    lastMX = e.clientX;
+    lastMY = e.clientY;
+    velX = 0; velY = 0;
+    canvas.style.cursor = 'grabbing';
+  } else {
+    // Pan
+    panDrag = true;
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+    panCamX = camX;
+    panCamY = camY;
+    canvas.style.cursor = 'grabbing';
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (dragCard) {
+    const [wx, wy] = screenToWorld(e.clientX, e.clientY);
+    const newX = wx - dragOffX;
+    const newY = wy - dragOffY;
+
+    // Track velocity for inertia
+    velX = (e.clientX - lastMX) / zoom;
+    velY = (e.clientY - lastMY) / zoom;
+    lastMX = e.clientX;
+    lastMY = e.clientY;
+
+    dragCard.x = newX;
+    dragCard.y = newY;
+  } else if (panDrag) {
+    camX = panCamX - (e.clientX - panStartX) / zoom;
+    camY = panCamY - (e.clientY - panStartY) / zoom;
+  } else {
+    const c = hitTest(e.clientX, e.clientY);
+    hoverCard = c;
+    canvas.style.cursor = c ? 'grab' : 'default';
+  }
+});
+
+canvas.addEventListener('mouseup', e => {
+  if (dragCard) {
+    dragCard.vx = velX * THROW_MULT;
+    dragCard.vy = velY * THROW_MULT;
+    dragCard = null;
+  }
+  panDrag = false;
+  canvas.style.cursor = hoverCard ? 'grab' : 'default';
+});
+
+canvas.addEventListener('dblclick', e => {
+  const c = hitTest(e.clientX, e.clientY);
+  if (!c) return;
+
+  if (c.kind === 'back') { navBack(); return; }
+  if (c.kind === 'ns') { navTo('namespace', c.obj); return; }
+  if (c.kind === 'folder') { navTo('folder', c.obj); return; }
+  if (c.kind === 'type') { navTo('type', c.obj); return; }
+  if (c.kind === 'leaf') { openOverlay(c.obj); return; }
+});
+
+// Zoom
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const oldZoom = zoom;
+  const delta = -e.deltaY * 0.001;
+  zoom = Math.max(0.3, Math.min(3, zoom + delta));
+
+  // Zoom toward cursor
+  const [wx, wy] = [(e.clientX - W / 2) / oldZoom + camX, (e.clientY - H / 2) / oldZoom + camY];
+  camX = wx - (e.clientX - W / 2) / zoom;
+  camY = wy - (e.clientY - H / 2) / zoom;
+}, { passive: false });
+
+// Search
+let searchTimer;
+document.getElementById('search').addEventListener('input', e => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    filter = e.target.value.trim();
+    buildView();
+  }, 200);
+});
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeOverlay();
+  if (e.key === 'Backspace' && !document.activeElement.matches('input')) { e.preventDefault(); navBack(); }
+});
+
+// ===== OVERLAY =====
+function openOverlay(obj) {
+  const ov = document.getElementById('overlay');
+  document.getElementById('oT').textContent = obj.displayName;
+  document.getElementById('oS').textContent = obj.elementId;
+  document.getElementById('oB').innerHTML = '<div style="color:#6b7194;font-size:12px;padding:20px;text-align:center;">Loading...</div>';
+  ov.classList.add('open');
+  fillOverlay(obj);
+}
+
+async function fillOverlay(obj) {
+  const body = document.getElementById('oB');
+  const children = byParent[obj.elementId] || [];
+  const parent = obj.parentId ? byId[obj.parentId] : null;
+  const siblings = parent ? (byParent[parent.elementId] || []).filter(s => s.elementId !== obj.elementId) : [];
+  const vqt = await getValue(obj.elementId);
+
+  let h = '';
+
+  // Value
+  if (vqt) {
+    const v = vqt.value;
+    h += '<div class="sec"><div class="sec-title">Current Value</div>';
+    if (typeof v === 'number') {
+      h += `<div class="big-val"><div class="n">${formatNum(v)}</div><div class="t">${esc(vqt.timestamp || '')}</div></div>`;
+    } else if (typeof v === 'object' && v !== null) {
+      h += `<div class="json-blk">${synHL(JSON.stringify(v, null, 2))}</div>`;
+      h += `<div style="font-size:10px;color:#6b7194;margin-top:4px;">${esc(vqt.timestamp || '')}</div>`;
+    } else if (v !== null && v !== undefined) {
+      h += `<div class="big-val"><div class="n" style="font-size:18px;">${esc(String(v))}</div><div class="t">${esc(vqt.timestamp || '')}</div></div>`;
+    }
+    h += '</div>';
+  }
+
+  // Props
+  h += '<div class="sec"><div class="sec-title">Properties</div><div class="kv">';
+  h += kv('Element ID', obj.elementId) + kv('Type', obj.typeId || '\u2014');
+  h += kv('Namespace', obj.namespaceUri) + kv('Children', obj.hasChildren ? children.length : 'none');
+  h += kv('Composition', obj.isComposition ? 'Yes' : 'No');
+  if (parent) h += kv('Parent', parent.displayName);
+  h += '</div></div>';
+
+  // Relationships
+  h += '<div class="sec"><div class="sec-title">Relationships</div><div class="rel-chain">';
+  if (parent) {
+    h += `<div class="rel-pill par" data-go="${esc(parent.elementId)}">\u2191 ${esc(parent.displayName)}</div>`;
+    h += '<div class="rel-arr">\u25BC</div>';
+  }
+  h += `<div class="rel-pill me">${esc(obj.displayName)}</div>`;
+  if (children.length > 0) {
+    h += '<div class="rel-arr">\u25BC</div><div class="rel-wrap">';
+    for (const c of children.slice(0, 12))
+      h += `<div class="rel-pill ch" data-go="${esc(c.elementId)}">${esc(c.displayName)}</div>`;
+    if (children.length > 12) h += `<div style="font-size:10px;color:#6b7194;">+${children.length - 12}</div>`;
+    h += '</div>';
+  }
+  h += '</div></div>';
+
+  if (siblings.length > 0) {
+    h += `<div class="sec"><div class="sec-title">Siblings (${siblings.length})</div><div class="rel-wrap">`;
+    for (const s of siblings.slice(0, 12))
+      h += `<div class="rel-pill ch" data-go="${esc(s.elementId)}" style="border-color:rgba(91,127,255,.2);color:#5b7fff;background:rgba(91,127,255,.05);">${esc(s.displayName)}</div>`;
+    if (siblings.length > 12) h += `<div style="font-size:10px;color:#6b7194;">+${siblings.length - 12}</div>`;
+    h += '</div></div>';
+  }
+
+  body.innerHTML = h;
+  body.querySelectorAll('[data-go]').forEach(el => {
+    el.onclick = () => { const o = byId[el.dataset.go]; if (o) openOverlay(o); };
+  });
+}
+
+function closeOverlay() { document.getElementById('overlay').classList.remove('open'); }
+document.getElementById('oX').onclick = closeOverlay;
+
+// ===== HELPERS =====
+function esc(s) { if (s == null) return ''; const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+function kv(l, v) { return `<span class="kv-l">${esc(l)}</span><span class="kv-v">${esc(v)}</span>`; }
+function formatNum(n) { return Number.isInteger(n) ? n.toLocaleString() : n.toLocaleString(undefined, { maximumFractionDigits: 4 }); }
+function timeAgo(ts) {
+  const d = Date.now() - new Date(ts).getTime();
+  if (d < 60000) return Math.floor(d / 1000) + 's ago';
+  if (d < 3600000) return Math.floor(d / 60000) + 'm ago';
+  return Math.floor(d / 3600000) + 'h ago';
+}
+function truncate(s, ctx, maxW) {
+  if (ctx.measureText(s).width <= maxW) return s;
+  while (s.length > 0 && ctx.measureText(s + '\u2026').width > maxW) s = s.slice(0, -1);
+  return s + '\u2026';
+}
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+}
+function synHL(json) {
+  return esc(json)
+    .replace(/"([^"]+)":/g, '<span style="color:#5b7fff">"$1"</span>:')
+    .replace(/: "([^"]*?)"/g, ': <span style="color:#34d399">"$1"</span>')
+    .replace(/: (\d+\.?\d*)/g, ': <span style="color:#f59e0b">$1</span>')
+    .replace(/: (true|false)/g, ': <span style="color:#a78bfa">$1</span>')
+    .replace(/: (null)/g, ': <span style="color:#f472b6">$1</span>');
+}
+
+// Fade out hint after 5s
+setTimeout(() => { const h = document.getElementById('hint'); if (h) h.style.opacity = '0'; }, 5000);
+
+// ===== START =====
+requestAnimationFrame(frame);
+load().catch(err => {
+  cards = [makeCard({ displayName: 'Error: ' + err.message, uri: '' }, -80, -30, 'ns')];
+});
+</script>
+</body>
+</html>
